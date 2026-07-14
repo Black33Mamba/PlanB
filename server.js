@@ -1,64 +1,70 @@
-const http = require('http');
-const https = require('https');
-const { URL } = require('url');
+const express = require('express');
+const { createProxyMiddleware } = require('http-proxy-middleware');
 
-const PORT = process.env.PORT || 3000;
+const app = express();
 
-const server = http.createServer((req, res) => {
-  // Health check
-  if (req.url === '/health') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ok', timestamp: new Date().toISOString() }));
-    return;
-  }
+// هاست‌های مجاز — هر کدوم یه مسیر داره
+const targets = {
+  'telegram': 'https://api.telegram.org',
+  'openai': 'https://api.openai.com',
+  'anthropic': 'https://api.anthropic.com',
+  'github': 'https://api.github.com',
+  'coingecko': 'https://api.coingecko.com',
+  'google': 'https://www.googleapis.com',
+  'huggingface': 'https://huggingface.co',
+  'openrouter': 'https://openrouter.ai',
+  'groq': 'https://api.groq.com',
+  'together': 'https://api.together.xyz',
+  'fireworks': 'https://api.fireworks.ai',
+  'deepseek': 'https://api.deepseek.com',
+  'mistral': 'https://api.mistral.ai',
+  'replicate': 'https://api.replicate.com',
+  'wolfram': 'https://api.wolframalpha.com',
+  'duckduckgo': 'https://api.duckduckgo.com',
+  'bing': 'https://www.bing.com',
+  'google-search': 'https://www.googleapis.com/customsearch',
+  'newsapi': 'https://newsapi.org',
+  'openweathermap': 'https://api.openweathermap.org',
+  'ipinfo': 'https://ipinfo.io',
+  'ipify': 'https://api.ipify.org',
+  'httpbin': 'https://httpbin.org',
+  'reddit': 'https://www.reddit.com',
+  'twitter': 'https://api.twitter.com',
+  'youtube': 'https://www.googleapis.com/youtube',
+  'gitlab': 'https://gitlab.com/api/v4',
+  'stackoverflow': 'https://api.stackexchange.com',
+  'wikipedia': 'https://en.wikipedia.org/api/rest_v1',
+  'pypi': 'https://pypi.org',
+  'npm': 'https://registry.npmjs.org',
+  'dockerhub': 'https://hub.docker.com',
+  'cloudflare': 'https://api.cloudflare.com'
+};
 
-  // HTTP Forward Proxy (CONNECT method for HTTPS)
-  if (req.method === 'CONNECT') {
-    const [host, port] = req.url.split(':');
-    const targetPort = parseInt(port) || 443;
-
-    const socket = require('net').connect(targetPort, host, () => {
-      res.writeHead(200, { 'Connection': 'keep-alive' });
-      res.flushHeaders();
-      req.pipe(socket);
-      socket.pipe(res);
-    });
-
-    socket.on('error', (err) => {
-      res.writeHead(502);
-      res.end('Proxy Error: ' + err.message);
-    });
-    return;
-  }
-
-  // HTTP Forward Proxy (plain HTTP)
-  try {
-    const targetUrl = new URL(req.url);
-    const options = {
-      hostname: targetUrl.hostname,
-      port: targetUrl.port || 80,
-      path: targetUrl.pathname + targetUrl.search,
-      method: req.method,
-      headers: { ...req.headers, host: targetUrl.host }
-    };
-
-    const proxyReq = http.request(options, (proxyRes) => {
-      res.writeHead(proxyRes.statusCode, proxyRes.headers);
-      proxyRes.pipe(res);
-    });
-
-    proxyReq.on('error', (err) => {
-      res.writeHead(502);
-      res.end('Proxy Error: ' + err.message);
-    });
-
-    req.pipe(proxyReq);
-  } catch (err) {
-    res.writeHead(400);
-    res.end('Bad Request');
-  }
+// هر درخواست به /<service>/... فوروارد میشه به اون service
+Object.entries(targets).forEach(([name, target]) => {
+  app.use(`/${name}`, createProxyMiddleware({
+    target,
+    changeOrigin: true,
+    pathRewrite: { [`^/${name}`]: '' },
+    on: {
+      proxyRes: (proxyRes) => {
+        proxyRes.headers['access-control-allow-origin'] = '*';
+      }
+    }
+  }));
 });
 
-server.listen(PORT, () => {
-  console.log(`HTTP Forward Proxy running on port ${PORT}`);
+// Health check
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'ok',
+    services: Object.keys(targets),
+    timestamp: new Date().toISOString() 
+  });
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`PlanB Proxy running on port ${PORT}`);
+  console.log(`Services: ${Object.keys(targets).join(', ')}`);
 });
